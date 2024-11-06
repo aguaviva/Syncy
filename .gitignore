@@ -1,0 +1,14 @@
+
+**/id_*
+**/*.o
+**/config
+**/authorized_keys
+**/known_hosts
+*.apk
+*.map
+*.keystore
+makecapk/*
+libs/*
+src/AndroidManifest.xml
+*.idsig
+imgui.ini
