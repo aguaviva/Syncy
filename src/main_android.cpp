@@ -26,10 +26,10 @@ static bool                 g_Initialized = false;
 static char                 g_LogTag[] = "ImGuiExample";
 static std::string          g_IniFilename = "";
 // Forward declarations of helper functions
-static void Start(struct android_app* app);
-static void Stop();
-static void Init(struct android_app* app);
-static void Shutdown();
+static void StartApp(struct android_app* app);
+static void StopApp();
+static void InitWindow(struct android_app* app);
+static void TermWindow();
 static void MainLoopStep();
 static void AndroidDisplayKeyboard(int pShow);
 static int GetAssetData(const char* filename, void** out_data);
@@ -40,21 +40,22 @@ static void handleAppCmd(struct android_app* app, int32_t appCmd)
     switch (appCmd)
     {
     case APP_CMD_START:
-        Start(app);
         break;
     case APP_CMD_STOP:
-        Stop();
         break;
     case APP_CMD_SAVE_STATE:
         break;
     case APP_CMD_INIT_WINDOW:
-        Init(app);
+        InitWindow(app);
         break;
     case APP_CMD_TERM_WINDOW:
-        Shutdown();
+        TermWindow();
         break;
     case APP_CMD_GAINED_FOCUS:
     case APP_CMD_LOST_FOCUS:
+        break;
+    case APP_CMD_DESTROY:
+        StopApp();
         break;
     }
 }
@@ -68,6 +69,8 @@ extern "C" void android_main(struct android_app* app)
 {
     app->onAppCmd = handleAppCmd;
     app->onInputEvent = handleInputEvent;
+
+    StartApp(app);
 
     while (true)
     {
@@ -87,7 +90,7 @@ extern "C" void android_main(struct android_app* app)
                 // shutdown() should have been called already while processing the
                 // app command APP_CMD_TERM_WINDOW. But we play save here
                 if (!g_Initialized)
-                    Shutdown();
+                    TermWindow();
 
                 return;
             }
@@ -98,15 +101,17 @@ extern "C" void android_main(struct android_app* app)
     }
 }
 
-void Start(struct android_app* app)
+void StartApp(struct android_app* app)
 {
+    Syncy_StartApp(app);
 }
 
-void Stop(  )
+void StopApp( )
 {   
+    Syncy_StopApp();
 }
 
-void Init(struct android_app* app)
+void InitWindow(struct android_app* app)
 {
     if (g_Initialized)
         return;
@@ -169,14 +174,14 @@ void Init(struct android_app* app)
     // FIXME: Put some effort into DPI awareness.
     // Important: when calling AddFontFromMemoryTTF(), ownership of font_data is transferred by Dear ImGui by default (deleted is handled by Dear ImGui), unless we set FontDataOwnedByAtlas=false in ImFontConfig
     ImFontConfig font_cfg;
-    font_cfg.SizePixels = 22.0f * 2;
+    font_cfg.SizePixels = 22.0f ;
     io.Fonts->AddFontDefault(&font_cfg);
 
     // Arbitrary scale-up
     // FIXME: Put some effort into DPI awareness
-    ImGui::GetStyle().ScaleAllSizes(3.0f * 2);
+    ImGui::GetStyle().ScaleAllSizes(3.0f);
 
-    Syncy_Init(app);
+    Syncy_InitWindow(app);
 
     g_Initialized = true;
 }
@@ -211,7 +216,7 @@ void MainLoopStep()
     eglSwapBuffers(g_EglDisplay, g_EglSurface);
 }
 
-void Shutdown()
+void TermWindow()
 {
     if (!g_Initialized)
         return;
@@ -221,7 +226,7 @@ void Shutdown()
     ImGui_ImplAndroid_Shutdown();
     ImGui::DestroyContext();
 
-    Syncy_Shutdown();
+    Syncy_TermWindow();
 
     if (g_EglDisplay != EGL_NO_DISPLAY)
     {

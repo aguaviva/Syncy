@@ -62,7 +62,7 @@ char buffer[EVENT_BUF_LEN];
 
 static pthread_mutex_t cs_mutex =  PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
-char exec_output[1024];
+char exec_output[10*1024];
 
 #define READ_END 0
 #define WRITE_END 1
@@ -71,10 +71,11 @@ void do_rsync(const char *filename)
 {
     char *out = exec_output;
 
+    int stdin_pipe[2];
     int stdout_pipe[2];
     int stderr_pipe[2];
 
-    if (pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1) 
+    if (pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1 || pipe(stdin_pipe) == -1) 
     {
         sprintf(out, "Can't crate pipe\n");
         return;
@@ -89,44 +90,28 @@ void do_rsync(const char *filename)
     if (pid == 0) 
     {
         // Child process
+        close(stdin_pipe[WRITE_END]);
         close(stdout_pipe[READ_END]);
         close(stderr_pipe[READ_END]);
 
+        dup2(stdin_pipe[READ_END], STDIN_FILENO);
         dup2(stdout_pipe[WRITE_END], STDOUT_FILENO);
         dup2(stderr_pipe[WRITE_END], STDERR_FILENO);
 
+        close(stdin_pipe[READ_END]);
         close(stdout_pipe[WRITE_END]);
         close(stderr_pipe[WRITE_END]);
 
-
-        /* the child process */
-        const char * const argv[] = 
-        {
-            "-a",
-//            "--stats", 
-//            "--progress",
-//            "--human-readable",
-            filename,
-            "/tmp/",
-            NULL
-        };
-
 #ifdef ANDROID    
         chdir(pExternalLibPath); 
-        char file[1024];
-        sprintf(file, "%s/dbclient", pExternalLibPath);
-
-        
-        char key[1024];
-        sprintf(key, "\"%s/dbclient -p 22222 -i %s/dropbear_rsa_host_key\"", pExternalLibPath, pExternalLibPath);
-        
-        sprintf(file, "%s/rsync", pExternalLibPath);
-        execl(file, "-avz", "--progress", filename, "/tmp", (char*)NULL);
-        //execl(file,  "-avz", "-e",  key, filename, "raul@xchip.duckdns.org:/tmp", (char*)NULL);
-
-        //sprintf(file, "%s/dbclient", pExternalLibPath);
-        //execl(file,  "xchip.duckdns.org", "-p", "22222", (char*)NULL);
-
+                
+        execl("./rsync", 
+        "-avz", 
+        "-e", "./dbclient -p 22222 -i ./dropbear_rsa_host_key -y -y", 
+        "--progress", 
+        filename, 
+        "username@myserver.org:/tmp", 
+        (char*)NULL);
 #else        
         execl("/usr/bin/df", "-h", (char*)NULL);
         //execl("/usr/bin/rsync", "-av", "--stats", "--progress", filename, "/tmp", (char*)NULL);
@@ -141,25 +126,31 @@ void do_rsync(const char *filename)
     else
     {
         // Parent process
+        close(stdin_pipe[READ_END]);
         close(stdout_pipe[WRITE_END]);
         close(stderr_pipe[WRITE_END]);
 
-        ssize_t count=0;
+        char data[]="ls\nexit\n";
+        write(stdin_pipe[WRITE_END], out, sizeof(data));
 
+        ssize_t count=0;
         out+=sprintf(out, "stdout:\n");
+
         // Read stdout
-        while ((count = read(stdout_pipe[READ_END], out, sizeof(exec_output) - 1)) > 0) {
+        while ((count = read(stdout_pipe[READ_END], out, 1)) > 0) {
             out += count;
             *out = '\0';
         }
 
         out+=sprintf(out, "\nstderr:\n");
+
         // Read stderr
-        while ((count = read(stderr_pipe[READ_END], out, sizeof(exec_output) - 1)) > 0) {
+        while ((count = read(stderr_pipe[READ_END], out, 1)) > 0) {
             out += count;
             *out = '\0';
         }
 
+        close(stdin_pipe[WRITE_END]);
         close(stdout_pipe[READ_END]);
         close(stderr_pipe[READ_END]);
 
@@ -223,12 +214,11 @@ bool GetOldestMod(const FileEntry **pOldest, double *pMinTime)
     return true;
 }
 
-#define DELAY 2
+#define DELAY 4
+
 void *sync_stuff(void *ptr)
 {
     printf("Started syncing thread\n");
-
-    do_rsync("/storage/emulated/0/Download/log.txt");
 
     while(true)
     {
@@ -239,7 +229,6 @@ void *sync_stuff(void *ptr)
         {
             char filename[1024];
             sprintf(filename, "%s/%s", pExternalDataPath, pOldest->name);
-            printf("%s\n", filename);
             do_rsync(filename);
             if (true)
             {
@@ -250,63 +239,12 @@ void *sync_stuff(void *ptr)
         }
         else
         {
-            sleep(DELAY-age);
-        }
+            sleep(DELAY-age); 
+        }       
     }
 }
 
-int GetLibDir(char *out);
-#include "FilePicker.h"
-pthread_t thread1;
-void Syncy_Init(void *window)
-{
-    strcpy(exec_output, "Init OK\n");   
-
-#ifdef ANDROID    
-    android_app * pApp = (android_app *)window;
-    pInternalDataPath = pApp->activity->internalDataPath;
-    pExternalDataPath = pApp->activity->externalDataPath;
-
-    //pExternalDataPath = "/storage/emulated/0/Download";
-    pExternalDataPath = "/storage/emulated/0/Download";
-    GetLibDir(pExternalLibPath);
-    //strcpy(exec_output, pExternalLibPath);//, "/rsync");
-
-    linked_list *files = GetFilesInFolder(pExternalLibPath);
-    SortLinkedList(files);
-    linked_list *pTmp = files;
-    while(pTmp != NULL)
-    {
-        strcat(exec_output, pTmp->pStr);
-        strcat(exec_output, "\n");
-        pTmp = pTmp->pNext;
-    }
-    FreeLinkedList(files);
-
-#else    
-    pExternalDataPath = "/home/raul";
-#endif
-
-
-    map = hashmap_new(sizeof(FileEntry), 0, 0, 0, FileEntry_hash, FileEntry_compare, NULL, NULL);    
-
-    fd = inotify_init();
-    wd = inotify_add_watch(fd, pExternalDataPath, IN_CLOSE_WRITE);
-
-    int iret1 = pthread_create( &thread1, NULL, sync_stuff, (void*) NULL);
-    printf("Starting thread %i\n", iret1);
-}
-
-void Syncy_Shutdown()
-{
-    hashmap_free(map);
-
-    inotify_rm_watch(fd, wd);
-    close(fd); 
-}
-
-
-void Syncy_MainLoopStep()
+void *poll_notifies(void *ptr)
 {
     pollfd pd;
     pd.fd = fd;
@@ -314,11 +252,13 @@ void Syncy_MainLoopStep()
 
     for(;;)
     {
+        /*
         int timeout= 1; 
         
         int rc = poll(&pd, 1, timeout);
         if ((pd.revents & POLLIN) == 0)
             break;
+        */
 
         //inotify_event ev;
         size_t length = read(fd, buffer, EVENT_BUF_LEN);
@@ -349,8 +289,77 @@ void Syncy_MainLoopStep()
             }
             i += EVENT_SIZE + event->len;
         }
-    }
+    }    
+}
 
+int GetLibDir(char *out);
+#include "FilePicker.h"
+
+pthread_t thread1;
+pthread_t thread2;
+
+void Syncy_StartApp(void *app)
+{
+    strcpy(exec_output, "Init OK\n");   
+
+#ifdef ANDROID    
+    android_app * pApp = (android_app *)app;
+    pInternalDataPath = pApp->activity->internalDataPath;
+    pExternalDataPath = pApp->activity->externalDataPath;
+    pExternalDataPath = "/storage/emulated/0/DCIM/Camera";
+
+    sprintf(exec_output, "%p %p %p\n", app, pApp->activity, pApp->activity->internalDataPath);   
+#else    
+    pExternalDataPath = "/home/raul";
+#endif
+
+    map = hashmap_new(sizeof(FileEntry), 0, 0, 0, FileEntry_hash, FileEntry_compare, NULL, NULL);    
+
+    fd = inotify_init();
+    wd = inotify_add_watch(fd, pExternalDataPath, IN_CLOSE_WRITE);
+
+    int iret1 = pthread_create( &thread1, NULL, sync_stuff, (void*) NULL);
+    int iret2 = pthread_create( &thread2, NULL, poll_notifies, (void*) NULL);
+    printf("Starting thread %i\n", iret1);
+}
+
+void Syncy_StopApp()
+{
+    hashmap_free(map);
+
+    inotify_rm_watch(fd, wd);
+    close(fd); 
+}
+
+void Syncy_InitWindow(void *app)
+{
+
+#ifdef ANDROID    
+    android_app * pApp = (android_app *)app;
+    GetLibDir(pExternalLibPath);
+
+    linked_list *files = GetFilesInFolder(pExternalLibPath);
+/*    
+    SortLinkedList(files);
+    linked_list *pTmp = files;
+    while(pTmp != NULL)
+    {
+        strcat(exec_output, pTmp->pStr);
+        strcat(exec_output, "\n");
+        pTmp = pTmp->pNext;
+    }
+    FreeLinkedList(files);
+*/    
+#endif
+}
+
+void Syncy_TermWindow()
+{
+}
+
+
+void Syncy_MainLoopStep()
+{
     ImGuiWindowFlags window_flags = 0;
     window_flags |= ImGuiWindowFlags_NoTitleBar;
     window_flags |= ImGuiWindowFlags_NoMove;
@@ -363,10 +372,10 @@ void Syncy_MainLoopStep()
 
     ImGui::Dummy(ImVec2(0.0f, 20.0f));
 
-    ImGui::Checkbox("Play", &play);
-    ImGui::Text("%s", pExternalDataPath);
-    ImGui::Text("%s", pInternalDataPath);
-    ImGui::Text("%s", pExternalLibPath);
+    //ImGui::Checkbox("Play", &play);
+    //ImGui::Text("%s", pExternalDataPath);
+    //ImGui::Text("%s", pInternalDataPath);
+    //ImGui::Text("%s", pExternalLibPath);
 
     static int item_selected_idx = -1;
     if (ImGui::BeginListBox("listbox 1"))
@@ -393,7 +402,7 @@ void Syncy_MainLoopStep()
         ImGui::EndListBox();
     }
 
-    int line_count = 30;
+    int line_count = 40;
     float height = ImGui::GetTextLineHeight() * line_count;
     ImGui::BeginChild("TextWrapLimiter", ImVec2(1000, height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PushTextWrapPos(0.0f);
