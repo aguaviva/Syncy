@@ -64,32 +64,48 @@ static pthread_mutex_t cs_mutex =  PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
 char exec_output[1024];
 
+#define READ_END 0
+#define WRITE_END 1
 
 void do_rsync(const char *filename)
 {
+    char *out = exec_output;
 
-    pid_t pid;
+    int stdout_pipe[2];
+    int stderr_pipe[2];
 
-    int link[2];
-    if (pipe(link)==-1)
+    if (pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1) 
     {
-        printf("failed to pipe()");
+        sprintf(out, "Can't crate pipe\n");
+        return;
     }
 
-    if ((pid = fork()) == 0) 
+    pid_t pid = fork();
+    if (pid == -1) {
+        sprintf(out, "Can't fork\n");
+        return;
+    }
+
+    if (pid == 0) 
     {
-        dup2 (link[1], STDOUT_FILENO);
-        close(link[0]);
-        close(link[1]);
+        // Child process
+        close(stdout_pipe[READ_END]);
+        close(stderr_pipe[READ_END]);
+
+        dup2(stdout_pipe[WRITE_END], STDOUT_FILENO);
+        dup2(stderr_pipe[WRITE_END], STDERR_FILENO);
+
+        close(stdout_pipe[WRITE_END]);
+        close(stderr_pipe[WRITE_END]);
 
 
         /* the child process */
         const char * const argv[] = 
         {
-            "-av",
-            "--stats", 
-            "--progress",
-            "--human-readable",
+            "-a",
+//            "--stats", 
+//            "--progress",
+//            "--human-readable",
             filename,
             "/tmp/",
             NULL
@@ -105,7 +121,7 @@ void do_rsync(const char *filename)
         sprintf(key, "\"%s/dbclient -p 22222 -i %s/dropbear_rsa_host_key\"", pExternalLibPath, pExternalLibPath);
         
         sprintf(file, "%s/rsync", pExternalLibPath);
-        execl(file, "-avz", "--stats", "--progress", filename, "/tmp", (char*)NULL);
+        execl(file, "-avz", "--progress", filename, "/tmp", (char*)NULL);
         //execl(file,  "-avz", "-e",  key, filename, "raul@xchip.duckdns.org:/tmp", (char*)NULL);
 
         //sprintf(file, "%s/dbclient", pExternalLibPath);
@@ -122,19 +138,30 @@ void do_rsync(const char *filename)
         /* if execl() was successful, this won't be reached */
         _exit(127);
     }
-
-    if (pid > 0) 
+    else
     {
-        close(link[1]);
-        int ntotal = 0;
-        int nbytes = 0;
-        exec_output[ntotal]='\0';
+        // Parent process
+        close(stdout_pipe[WRITE_END]);
+        close(stderr_pipe[WRITE_END]);
 
-        while(0 != (nbytes = read(link[0], &exec_output[ntotal], sizeof(1024)))) {
-            ntotal += nbytes;
-            exec_output[ntotal]='\0';
+        ssize_t count=0;
+
+        out+=sprintf(out, "stdout:\n");
+        // Read stdout
+        while ((count = read(stdout_pipe[READ_END], out, sizeof(exec_output) - 1)) > 0) {
+            out += count;
+            *out = '\0';
         }
-        wait(NULL);
+
+        out+=sprintf(out, "\nstderr:\n");
+        // Read stderr
+        while ((count = read(stderr_pipe[READ_END], out, sizeof(exec_output) - 1)) > 0) {
+            out += count;
+            *out = '\0';
+        }
+
+        close(stdout_pipe[READ_END]);
+        close(stderr_pipe[READ_END]);
 
         /* the parent process calls waitpid() on the child */
         int status;
@@ -142,49 +169,26 @@ void do_rsync(const char *filename)
         if ( respid == -1)
         {                        
             /* waitpid() failed */
-            ntotal+=sprintf(&exec_output[ntotal], "waitpid() failed %i\n", respid);
+            out+=sprintf(out, "waitpid() failed %i\n", respid);
             switch(errno)
             {
-                case ECHILD: ntotal+=sprintf(&exec_output[ntotal], "No child process\n"); break;
-                case EINVAL: ntotal+=sprintf(&exec_output[ntotal], "Invalid optons\n"); break;
-                case EINTR: ntotal+=sprintf(&exec_output[ntotal], "Interrupted by signal\n"); break;
-                default: ntotal+=sprintf(&exec_output[ntotal], "Error unknown\n"); break;
+                case ECHILD: out+=sprintf(out, "No child process\n"); break;
+                case EINVAL: out+=sprintf(out, "Invalid optons\n"); break;
+                case EINTR: out+=sprintf(out, "Interrupted by signal\n"); break;
+                default: out+=sprintf(out, "Error unknown\n"); break;
             }
         }
         else
         {
-            if (WIFEXITED(status) && !WEXITSTATUS(status)) 
+            if (WIFEXITED(status)) 
             {
-                strcpy(exec_output, "the program terminated normally and executed successfully\n");
-                /* the program terminated normally and executed successfully */
-            } 
-            else if (WIFEXITED(status) && WEXITSTATUS(status)) 
-            {
-                if (WEXITSTATUS(status) == 127) {
-                    /* execl() failed */
-                    strcpy(exec_output, "execl() failed\n");
-                } 
-                else 
-                {
-                    /* the program terminated normally, but returned a non-zero status */
-                    switch (WEXITSTATUS(status)) 
-                    {
-                    /* handle each particular return code that the program can return */
-                    }
-                    sprintf(exec_output, "program returned value status %i\n", status);
-                }
+                out+=sprintf(out, "Child exited with status %d\n", WEXITSTATUS(status));
             } 
             else 
             {
-                /* the program didn't terminate normally */
-                strcpy(exec_output, "the program didn't terminate normally");
+                out+=sprintf(out, "Child did not exit normally\n");
             }
-        } 
-    } 
-    else 
-    {
-        /* failed to fork() */
-        strcpy(exec_output, "failed to fork()");
+        }
     }    
 }
 
@@ -224,7 +228,7 @@ void *sync_stuff(void *ptr)
 {
     printf("Started syncing thread\n");
 
-    do_rsync("/home/raul/pp.png");
+    do_rsync("/storage/emulated/0/Download/log.txt");
 
     while(true)
     {
@@ -389,7 +393,7 @@ void Syncy_MainLoopStep()
         ImGui::EndListBox();
     }
 
-    int line_count = 20;
+    int line_count = 30;
     float height = ImGui::GetTextLineHeight() * line_count;
     ImGui::BeginChild("TextWrapLimiter", ImVec2(1000, height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PushTextWrapPos(0.0f);
