@@ -3,6 +3,7 @@
 **/*.o
 **/config
 **/authorized_keys
+**/dropbear_rsa_host_key
 **/known_hosts
 *.apk
 *.map

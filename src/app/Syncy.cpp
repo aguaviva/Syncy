@@ -82,13 +82,42 @@ void do_rsync(const char *filename)
         close(link[0]);
         close(link[1]);
 
+
+        /* the child process */
+        const char * const argv[] = 
+        {
+            "-av",
+            "--stats", 
+            "--progress",
+            "--human-readable",
+            filename,
+            "/tmp/",
+            NULL
+        };
+
 #ifdef ANDROID    
+        chdir(pExternalLibPath); 
         char file[1024];
+        sprintf(file, "%s/dbclient", pExternalLibPath);
+
+        
+        char key[1024];
+        sprintf(key, "\"%s/dbclient -p 22222 -i %s/dropbear_rsa_host_key\"", pExternalLibPath, pExternalLibPath);
+        
         sprintf(file, "%s/rsync", pExternalLibPath);
-        execl(file, pExternalLibPath, "-av", "--stats", "--progress", filename, "/tmp", (char*)NULL);
-        //execl("/system/bin/df", (char*)NULL);
+        execl(file, "-avz", "--stats", "--progress", filename, "/tmp", (char*)NULL);
+        //execl(file,  "-avz", "-e",  key, filename, "raul@xchip.duckdns.org:/tmp", (char*)NULL);
+
+        //sprintf(file, "%s/dbclient", pExternalLibPath);
+        //execl(file,  "xchip.duckdns.org", "-p", "22222", (char*)NULL);
+
 #else        
-        execl("./rsync", "-av", "--stats", "--progress", filename, "/tmp", (char*)NULL);
+        execl("/usr/bin/df", "-h", (char*)NULL);
+        //execl("/usr/bin/rsync", "-av", "--stats", "--progress", filename, "/tmp", (char*)NULL);
+        
+        //execv("/usr/bin/rsync", "-h", (char*)NULL);
+        //execv("/usr/bin/rsync", (char * const *)argv);
+
 #endif        
         /* if execl() was successful, this won't be reached */
         _exit(127);
@@ -100,19 +129,18 @@ void do_rsync(const char *filename)
         int ntotal = 0;
         int nbytes = 0;
         exec_output[ntotal]='\0';
-        while(0 != (nbytes = read(link[0], &exec_output[ntotal], sizeof(1024)-ntotal))) {
+
+        while(0 != (nbytes = read(link[0], &exec_output[ntotal], sizeof(1024)))) {
             ntotal += nbytes;
             exec_output[ntotal]='\0';
         }
         wait(NULL);
 
-        ntotal+=sprintf(&exec_output[ntotal], "pid = %i, errno = %i\n", pid, errno);
-
         /* the parent process calls waitpid() on the child */
         int status;
         pid_t respid = waitpid(pid, &status, 0); 
         if ( respid == -1)
-        {            
+        {                        
             /* waitpid() failed */
             ntotal+=sprintf(&exec_output[ntotal], "waitpid() failed %i\n", respid);
             switch(errno)
@@ -122,7 +150,7 @@ void do_rsync(const char *filename)
                 case EINTR: ntotal+=sprintf(&exec_output[ntotal], "Interrupted by signal\n"); break;
                 default: ntotal+=sprintf(&exec_output[ntotal], "Error unknown\n"); break;
             }
-        } 
+        }
         else
         {
             if (WIFEXITED(status) && !WEXITSTATUS(status)) 
@@ -195,6 +223,9 @@ bool GetOldestMod(const FileEntry **pOldest, double *pMinTime)
 void *sync_stuff(void *ptr)
 {
     printf("Started syncing thread\n");
+
+    do_rsync("/home/raul/pp.png");
+
     while(true)
     {
         double age;
@@ -236,9 +267,6 @@ void Syncy_Init(void *window)
     pExternalDataPath = "/storage/emulated/0/Download";
     GetLibDir(pExternalLibPath);
     //strcpy(exec_output, pExternalLibPath);//, "/rsync");
-#else    
-    pExternalDataPath = "/home/raul";
-#endif
 
     linked_list *files = GetFilesInFolder(pExternalLibPath);
     SortLinkedList(files);
@@ -251,6 +279,10 @@ void Syncy_Init(void *window)
     }
     FreeLinkedList(files);
 
+#else    
+    pExternalDataPath = "/home/raul";
+#endif
+
 
     map = hashmap_new(sizeof(FileEntry), 0, 0, 0, FileEntry_hash, FileEntry_compare, NULL, NULL);    
 
@@ -259,7 +291,6 @@ void Syncy_Init(void *window)
 
     int iret1 = pthread_create( &thread1, NULL, sync_stuff, (void*) NULL);
     printf("Starting thread %i\n", iret1);
-
 }
 
 void Syncy_Shutdown()
@@ -360,7 +391,7 @@ void Syncy_MainLoopStep()
 
     int line_count = 20;
     float height = ImGui::GetTextLineHeight() * line_count;
-    ImGui::BeginChild("TextWrapLimiter", ImVec2(500, height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::BeginChild("TextWrapLimiter", ImVec2(1000, height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted(exec_output);
     ImGui::PopTextWrapPos();

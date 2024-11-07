@@ -3,8 +3,11 @@
 BUILD_ANDROID:=y
 DEBUG:=y
 
+ifeq ($(BUILD_ANDROID),y)
 all : makecapk.apk
-#all: linux_version
+else
+all: linux_version
+endif
 .PHONY : push run
 
 # WARNING WARNING WARNING!  YOU ABSOLUTELY MUST OVERRIDE THE PROJECT NAME
@@ -170,8 +173,12 @@ endif
 libs/$(TARGET)/imgui/objs/%.o : submodules/imgui/%.cpp
 	mkdir -p libs/$(TARGET)/imgui/objs
 	mkdir -p libs/$(TARGET)/imgui/objs/backends
-	#$(CC) -c $(CFLAGS) -Isubmodules/imgui $(CFLAGS_x86_64) $^ -o $@
+	
+ifeq ($(BUILD_ANDROID),y)	
 	$(CC_ARM64) -c $(CFLAGS) -Isubmodules/imgui $(CFLAGS_ARM64) $^ -o $@  
+else
+	$(CC) -c $(CFLAGS) -Isubmodules/imgui $(CFLAGS_x86_64) $^ -o $@
+endif
 
 libs/$(TARGET)/imgui/libimgui.a : $(addprefix libs/$(TARGET)/imgui/objs/,$(subst .cpp,.o,$(IMGUI_SRCS)))
 	ar ru $@ $^
