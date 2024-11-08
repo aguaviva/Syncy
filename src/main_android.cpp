@@ -16,6 +16,7 @@
 #include "backends/imgui_impl_opengl3.h"
 #include <string>
 #include "Syncy.h"
+#include "Log.h"
 
 // Data
 static EGLDisplay           g_EglDisplay = EGL_NO_DISPLAY;
@@ -40,22 +41,33 @@ static void handleAppCmd(struct android_app* app, int32_t appCmd)
     switch (appCmd)
     {
     case APP_CMD_START:
+        Log("APP_CMD_START");
+        StartApp(app);
         break;
     case APP_CMD_STOP:
+        Log("APP_CMD_STOP");
+        StopApp();
         break;
     case APP_CMD_SAVE_STATE:
+        Log("APP_CMD_SAVE_STATE");
         break;
     case APP_CMD_INIT_WINDOW:
+        Log("APP_CMD_INIT_WINDOW");
         InitWindow(app);
         break;
     case APP_CMD_TERM_WINDOW:
+        Log("APP_CMD_TERM_WINDOW");
         TermWindow();
         break;
     case APP_CMD_GAINED_FOCUS:
+        Log("APP_CMD_GAINED_FOCUS");
+        break;
     case APP_CMD_LOST_FOCUS:
+        Log("APP_CMD_LOST_FOCUS");
         break;
     case APP_CMD_DESTROY:
-        StopApp();
+    Log("APP_CMD_DESTROY");
+        StopApp();        
         break;
     }
 }
@@ -69,8 +81,6 @@ extern "C" void android_main(struct android_app* app)
 {
     app->onAppCmd = handleAppCmd;
     app->onInputEvent = handleInputEvent;
-
-    StartApp(app);
 
     while (true)
     {
@@ -87,11 +97,6 @@ extern "C" void android_main(struct android_app* app)
             // Exit the app by returning from within the infinite loop
             if (app->destroyRequested != 0)
             {
-                // shutdown() should have been called already while processing the
-                // app command APP_CMD_TERM_WINDOW. But we play save here
-                if (!g_Initialized)
-                    TermWindow();
-
                 return;
             }
         }

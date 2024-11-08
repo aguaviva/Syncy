@@ -136,6 +136,10 @@ void *sync_stuff(void *ptr)
             {
                 sleep(DELAY-age); 
             }
+
+            pthread_mutex_lock( &cs_mutex );
+            hashmap_delete(map_pending, &pOldest->name);
+            pthread_mutex_unlock( &cs_mutex );
             
             char filename[1024];
             sprintf(filename, "%s/%s", monitoredFolder, pOldest->name);
@@ -148,9 +152,6 @@ void *sync_stuff(void *ptr)
 
             //if (res)
             {
-                pthread_mutex_lock( &cs_mutex );
-                hashmap_delete(map_pending, &pOldest->name);
-                pthread_mutex_unlock( &cs_mutex );
             }
         }
     }
@@ -302,6 +303,7 @@ void Syncy_StopApp()
 {
     keepRunning = 0;
 
+    Log("Stopping...");
     //wakeup rsync thread 
     sem_post(&semaphore);
     sem_destroy(&semaphore);
@@ -389,7 +391,7 @@ bool Syncy_MainLoopStep()
             double age = GetAge(item);
             
             char filename[1024];
-            sprintf(filename, "%02i - %s", (int)age, item->name);
+            sprintf(filename, "%02i - %s", DELAY - (int)age, item->name);
 
             if (ImGui::Selectable(filename, is_selected))
                 item_selected_idx = iter;
