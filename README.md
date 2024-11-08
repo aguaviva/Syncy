@@ -26,4 +26,4 @@ Warning, this is highly experimental
   - Once this works you'll be able to configure things using the UI, until then the UI is just readonly.
 
 # Notes
-- Runs on Linux, it was actually developed and debugged on linux and then was ported to Android with minima effort.
+- Runs on Linux, it was actually developed and debugged on linux and then was ported to Android with minimal effort.
