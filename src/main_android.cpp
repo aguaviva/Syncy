@@ -42,11 +42,9 @@ static void handleAppCmd(struct android_app* app, int32_t appCmd)
     {
     case APP_CMD_START:
         Log("APP_CMD_START");
-        StartApp(app);
         break;
     case APP_CMD_STOP:
         Log("APP_CMD_STOP");
-        StopApp();
         break;
     case APP_CMD_SAVE_STATE:
         Log("APP_CMD_SAVE_STATE");
@@ -81,6 +79,8 @@ extern "C" void android_main(struct android_app* app)
 {
     app->onAppCmd = handleAppCmd;
     app->onInputEvent = handleInputEvent;
+
+    StartApp(app);
 
     while (true)
     {
