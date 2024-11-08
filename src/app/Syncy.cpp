@@ -22,10 +22,10 @@
 #include <string.h>
 #include <time.h>
 #include <pthread.h>
-#include <errno.h>
+#include <semaphore.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include "hashmap.h"
+#include "ExecRsync.h"
 
 struct FileEntry {
     char *name;
@@ -43,6 +43,8 @@ uint64_t FileEntry_hash(const void *item, uint64_t seed0, uint64_t seed1) {
     return hashmap_sip(FileEntry->name, strlen(FileEntry->name), seed0, seed1);
 }
 
+char exec_output[10*1024];
+
 const char *pInternalDataPath = NULL;
 const char *pExternalDataPath = NULL;
 char pExternalLibPath[1024];
@@ -52,136 +54,15 @@ bool play=false;
 int fd;
 int wd;
 
-
 struct hashmap *map;
 
+sem_t semaphore;
 
 #define EVENT_SIZE  ( sizeof (struct inotify_event) )
 #define EVENT_BUF_LEN     ( 1024 * ( EVENT_SIZE + 16 ) )
 char buffer[EVENT_BUF_LEN];
 
 static pthread_mutex_t cs_mutex =  PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
-
-char exec_output[10*1024];
-
-#define READ_END 0
-#define WRITE_END 1
-
-void do_rsync(const char *filename)
-{
-    char *out = exec_output;
-
-    int stdin_pipe[2];
-    int stdout_pipe[2];
-    int stderr_pipe[2];
-
-    if (pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1 || pipe(stdin_pipe) == -1) 
-    {
-        sprintf(out, "Can't crate pipe\n");
-        return;
-    }
-
-    pid_t pid = fork();
-    if (pid == -1) {
-        sprintf(out, "Can't fork\n");
-        return;
-    }
-
-    if (pid == 0) 
-    {
-        // Child process
-        close(stdin_pipe[WRITE_END]);
-        close(stdout_pipe[READ_END]);
-        close(stderr_pipe[READ_END]);
-
-        dup2(stdin_pipe[READ_END], STDIN_FILENO);
-        dup2(stdout_pipe[WRITE_END], STDOUT_FILENO);
-        dup2(stderr_pipe[WRITE_END], STDERR_FILENO);
-
-        close(stdin_pipe[READ_END]);
-        close(stdout_pipe[WRITE_END]);
-        close(stderr_pipe[WRITE_END]);
-
-#ifdef ANDROID    
-        chdir(pExternalLibPath); 
-                
-        execl("./rsync", 
-        "-avz", 
-        "-e", "./dbclient -p 22222 -i ./dropbear_rsa_host_key -y -y", 
-        "--progress", 
-        filename, 
-        "username@myserver.org:/tmp", 
-        (char*)NULL);
-#else        
-        execl("/usr/bin/df", "-h", (char*)NULL);
-        //execl("/usr/bin/rsync", "-av", "--stats", "--progress", filename, "/tmp", (char*)NULL);
-        
-        //execv("/usr/bin/rsync", "-h", (char*)NULL);
-        //execv("/usr/bin/rsync", (char * const *)argv);
-
-#endif        
-        /* if execl() was successful, this won't be reached */
-        _exit(127);
-    }
-    else
-    {
-        // Parent process
-        close(stdin_pipe[READ_END]);
-        close(stdout_pipe[WRITE_END]);
-        close(stderr_pipe[WRITE_END]);
-
-        char data[]="ls\nexit\n";
-        write(stdin_pipe[WRITE_END], out, sizeof(data));
-
-        ssize_t count=0;
-        out+=sprintf(out, "stdout:\n");
-
-        // Read stdout
-        while ((count = read(stdout_pipe[READ_END], out, 1)) > 0) {
-            out += count;
-            *out = '\0';
-        }
-
-        out+=sprintf(out, "\nstderr:\n");
-
-        // Read stderr
-        while ((count = read(stderr_pipe[READ_END], out, 1)) > 0) {
-            out += count;
-            *out = '\0';
-        }
-
-        close(stdin_pipe[WRITE_END]);
-        close(stdout_pipe[READ_END]);
-        close(stderr_pipe[READ_END]);
-
-        /* the parent process calls waitpid() on the child */
-        int status;
-        pid_t respid = waitpid(pid, &status, 0); 
-        if ( respid == -1)
-        {                        
-            /* waitpid() failed */
-            out+=sprintf(out, "waitpid() failed %i\n", respid);
-            switch(errno)
-            {
-                case ECHILD: out+=sprintf(out, "No child process\n"); break;
-                case EINVAL: out+=sprintf(out, "Invalid optons\n"); break;
-                case EINTR: out+=sprintf(out, "Interrupted by signal\n"); break;
-                default: out+=sprintf(out, "Error unknown\n"); break;
-            }
-        }
-        else
-        {
-            if (WIFEXITED(status)) 
-            {
-                out+=sprintf(out, "Child exited with status %d\n", WEXITSTATUS(status));
-            } 
-            else 
-            {
-                out+=sprintf(out, "Child did not exit normally\n");
-            }
-        }
-    }    
-}
 
 double GetAge(const FileEntry *item)
 {
@@ -222,14 +103,21 @@ void *sync_stuff(void *ptr)
 
     while(true)
     {
+        sem_wait(&semaphore);
+
         double age;
         const FileEntry *pOldest = NULL;
         GetOldestMod(&pOldest, &age);
-        if (pOldest!=NULL && age>DELAY)
+        if (pOldest!=NULL)
         {
+            if (age<DELAY)
+            {
+                sleep(DELAY-age); 
+            }
+            
             char filename[1024];
             sprintf(filename, "%s/%s", pExternalDataPath, pOldest->name);
-            do_rsync(filename);
+            do_rsync(pExternalLibPath, filename, exec_output);
             if (true)
             {
                 pthread_mutex_lock( &cs_mutex );
@@ -237,10 +125,6 @@ void *sync_stuff(void *ptr)
                 pthread_mutex_unlock( &cs_mutex );
             }
         }
-        else
-        {
-            sleep(DELAY-age); 
-        }       
     }
 }
 
@@ -284,6 +168,9 @@ void *poll_notifies(void *ptr)
                         pthread_mutex_lock( &cs_mutex );
                         hashmap_set(map, &item);
                         pthread_mutex_unlock( &cs_mutex );
+                        
+                        // Tell the other thread there is work to do
+                        sem_post(&semaphore);
                     }
                 }
             }
@@ -307,8 +194,6 @@ void Syncy_StartApp(void *app)
     pInternalDataPath = pApp->activity->internalDataPath;
     pExternalDataPath = pApp->activity->externalDataPath;
     pExternalDataPath = "/storage/emulated/0/DCIM/Camera";
-
-    sprintf(exec_output, "%p %p %p\n", app, pApp->activity, pApp->activity->internalDataPath);   
 #else    
     pExternalDataPath = "/home/raul";
 #endif
@@ -318,13 +203,18 @@ void Syncy_StartApp(void *app)
     fd = inotify_init();
     wd = inotify_add_watch(fd, pExternalDataPath, IN_CLOSE_WRITE);
 
+    sem_init(&semaphore, 0, 0);
+
     int iret1 = pthread_create( &thread1, NULL, sync_stuff, (void*) NULL);
+    printf("Starting thread1 %i\n", iret1);
     int iret2 = pthread_create( &thread2, NULL, poll_notifies, (void*) NULL);
-    printf("Starting thread %i\n", iret1);
+    printf("Starting thread2 %i\n", iret2);
 }
 
 void Syncy_StopApp()
 {
+    sem_destroy(&semaphore);
+
     hashmap_free(map);
 
     inotify_rm_watch(fd, wd);
@@ -333,13 +223,12 @@ void Syncy_StopApp()
 
 void Syncy_InitWindow(void *app)
 {
-
 #ifdef ANDROID    
     android_app * pApp = (android_app *)app;
+    pApp;
     GetLibDir(pExternalLibPath);
-
-    linked_list *files = GetFilesInFolder(pExternalLibPath);
 /*    
+    linked_list *files = GetFilesInFolder(pExternalLibPath);
     SortLinkedList(files);
     linked_list *pTmp = files;
     while(pTmp != NULL)
