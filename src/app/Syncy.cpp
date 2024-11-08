@@ -23,10 +23,14 @@
 #include <time.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <sys/stat.h>
 #include <sys/types.h>
+#include <signal.h>
+
 #include "hashmap.h"
 #include "ExecRsync.h"
 #include "misc.h"
+#include "Log.h"
 
 struct FileEntry {
     char *name;
@@ -44,18 +48,32 @@ uint64_t FileEntry_hash(const void *item, uint64_t seed0, uint64_t seed1) {
     return hashmap_sip(FileEntry->name, strlen(FileEntry->name), seed0, seed1);
 }
 
+volatile int keepRunning = 1;
+
+void intHandler(int dummy) {
+    keepRunning = 0;
+}
+
+void gotsig(int sig, siginfo_t *info, void *ucontext) 
+{
+}
+
+time_t start_time;
+
 char exec_output[10*1024];
 
 const char *pInternalDataPath = NULL;
 const char *pExternalDataPath = NULL;
+const char *pMediaAndFilesDataPath = NULL;
 char pExternalLibPath[1024];
+char monitoredFolder[1024];
 char destination[1024];
 bool play=false;
 
 int fd;
 int wd;
 
-struct hashmap *map;
+struct hashmap *map_pending;
 
 sem_t semaphore;
 
@@ -81,7 +99,7 @@ bool GetOldestMod(const FileEntry **pOldest, double *pMinTime)
     *pMinTime = 1e20;
 
     pthread_mutex_lock( &cs_mutex );
-    while (hashmap_iter(map, &iter, &item)) 
+    while (hashmap_iter(map_pending, &iter, &item)) 
     {
         const FileEntry *entry = (const FileEntry *)item;
         double seconds = GetAge(entry);
@@ -100,11 +118,14 @@ bool GetOldestMod(const FileEntry **pOldest, double *pMinTime)
 
 void *sync_stuff(void *ptr)
 {
-    printf("Started syncing thread\n");
+    Log("Started syncing thread");
 
-    while(true)
+    while(keepRunning)
     {
         sem_wait(&semaphore);
+
+        if (keepRunning==false)
+            break;
 
         double age;
         const FileEntry *pOldest = NULL;
@@ -117,30 +138,51 @@ void *sync_stuff(void *ptr)
             }
             
             char filename[1024];
-            sprintf(filename, "%s/%s", pExternalDataPath, pOldest->name);
-            do_rsync(
+            sprintf(filename, "%s/%s", monitoredFolder, pOldest->name);
+            bool res = do_rsync(
                 pExternalLibPath, 
                 filename, 
                 destination, 
                 "/storage/emulated/0/Documents/dropbear_rsa_host_key",
                 exec_output);
-            if (true)
+
+            //if (res)
             {
                 pthread_mutex_lock( &cs_mutex );
-                hashmap_delete(map, &pOldest->name);
+                hashmap_delete(map_pending, &pOldest->name);
                 pthread_mutex_unlock( &cs_mutex );
             }
         }
     }
+
+    Log("Stop syncing thread");
+    
+    return NULL;
 }
 
 void *poll_notifies(void *ptr)
 {
+    //int hdlsig = (int)ptr;
+/*
+    struct sigaction sa;
+    sa.sa_handler = NULL;
+    sa.sa_sigaction = gotsig;
+    sa.sa_flags = SA_SIGINFO;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(0, &sa, NULL) < 0) {
+            perror("sigaction");
+            return (void *)-1;
+    }
+*/
+    /*
     pollfd pd;
     pd.fd = fd;
     pd.events = POLLIN;
+    */
+    Log("Start inotify thread");
 
-    for(;;)
+    while(keepRunning)
     {
         /*
         int timeout= 1; 
@@ -151,8 +193,10 @@ void *poll_notifies(void *ptr)
         */
 
         //inotify_event ev;
-        size_t length = read(fd, buffer, EVENT_BUF_LEN);
-
+        ssize_t length = read(fd, buffer, EVENT_BUF_LEN);
+        if (length<0)
+            continue;
+            
         int i=0;
         /*actually read return the list of change events happens. Here, read the change event one by one and process it accordingly.*/
         while ( i < length ) 
@@ -174,7 +218,7 @@ void *poll_notifies(void *ptr)
                             time(&item.rawtime);
                             
                             pthread_mutex_lock( &cs_mutex );
-                            hashmap_set(map, &item);
+                            hashmap_set(map_pending, &item);
                             pthread_mutex_unlock( &cs_mutex );
                             
                             // Tell the other thread there is work to do
@@ -186,6 +230,10 @@ void *poll_notifies(void *ptr)
             i += EVENT_SIZE + event->len;
         }
     }    
+
+    Log("Stop inotify thread");
+
+    return NULL;
 }
 
 int GetLibDir(char *out);
@@ -196,24 +244,51 @@ pthread_t thread2;
 
 void Syncy_StartApp(void *app)
 {
-    strcpy(exec_output, "Init OK\n");   
+    signal(SIGINT, intHandler);
+    signal(SIGQUIT, intHandler);
+
+    strcpy(exec_output, "Init OK\n");  
+    
+    time(&start_time);
+
+    map_pending = hashmap_new(sizeof(FileEntry), 0, 0, 0, FileEntry_hash, FileEntry_compare, NULL, NULL);    
+
+    char path[1024];
 
 #ifdef ANDROID    
     android_app * pApp = (android_app *)app;
     pInternalDataPath = pApp->activity->internalDataPath;
     pExternalDataPath = pApp->activity->externalDataPath;
-    pExternalDataPath = "/storage/emulated/0/DCIM/Camera";
-
-    read_string_from_file("/storage/emulated/0/Documents/server.txt", destination);
+    pMediaAndFilesDataPath = "/storage/emulated/0";
 
 #else    
-    pExternalDataPath = "/tmp";
+    pMediaAndFilesDataPath = "/tmp";
+    pInternalDataPath = pMediaAndFilesDataPath;
+    pExternalDataPath = pMediaAndFilesDataPath;
+
+    sprintf(path, "%s%s", pMediaAndFilesDataPath, "/Documents");
+    mkdir(path,0700);
+
+    sprintf(path, "%s%s", pMediaAndFilesDataPath, "/DCIM");
+    mkdir(path,0700);
+
+    sprintf(path, "%s%s", pMediaAndFilesDataPath, "/DCIM/Camera");
+    mkdir(path,0700);
 #endif
 
-    map = hashmap_new(sizeof(FileEntry), 0, 0, 0, FileEntry_hash, FileEntry_compare, NULL, NULL);    
+    sprintf(path, "%s%s", pMediaAndFilesDataPath, "/Documents/server.txt");
+    read_string_from_file(path, destination);
+
+    sprintf(path, "%s%s", pMediaAndFilesDataPath, "/Documents/log.txt");
+    LogInit(path);
+    Log("%s", "StartApp");
 
     fd = inotify_init();
-    wd = inotify_add_watch(fd, pExternalDataPath, IN_CLOSE_WRITE);
+
+    sprintf(monitoredFolder, "%s%s", pMediaAndFilesDataPath, "/DCIM/Camera");
+    wd = inotify_add_watch(fd, monitoredFolder, IN_CLOSE_WRITE);
+
+    // init background tasks
 
     sem_init(&semaphore, 0, 0);
 
@@ -225,12 +300,24 @@ void Syncy_StartApp(void *app)
 
 void Syncy_StopApp()
 {
+    keepRunning = 0;
+
+    //wakeup rsync thread 
+    sem_post(&semaphore);
     sem_destroy(&semaphore);
-
-    hashmap_free(map);
-
+    
+    //wakeup inotify thread
     inotify_rm_watch(fd, wd);
     close(fd); 
+
+    void *retval;
+    pthread_join(thread2, &retval);
+    pthread_join(thread1, &retval);
+
+    hashmap_free(map_pending);
+
+    Log("StopApp");
+    LogTerm();
 }
 
 void Syncy_InitWindow(void *app)
@@ -238,6 +325,7 @@ void Syncy_InitWindow(void *app)
 #ifdef ANDROID    
     android_app * pApp = (android_app *)app;
     pApp;
+    // can't do it earlier
     GetLibDir(pExternalLibPath);
 /*    
     linked_list *files = GetFilesInFolder(pExternalLibPath);
@@ -259,7 +347,7 @@ void Syncy_TermWindow()
 }
 
 
-void Syncy_MainLoopStep()
+bool Syncy_MainLoopStep()
 {
     ImGuiWindowFlags window_flags = 0;
     window_flags |= ImGuiWindowFlags_NoTitleBar;
@@ -271,19 +359,29 @@ void Syncy_MainLoopStep()
     ImGui::Begin("imgui window", NULL, window_flags); // create a window
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0,0));
 
-    ImGui::Dummy(ImVec2(0.0f, 20.0f));
+    ImGui::Dummy(ImVec2(0.0f, 60.0f));
 
     //ImGui::Checkbox("Play", &play);
-    //ImGui::Text("%s", pExternalDataPath);
-    //ImGui::Text("%s", pInternalDataPath);
+    ImGui::Text("%s", pExternalDataPath);
+    ImGui::Text("%s", pInternalDataPath);
+
+    uint32_t seconds = (uint32_t)difftime(time(0), start_time); 
+    int days = seconds / (24*60*60);
+    int days_rem = seconds % (24*60*60);
+    int hours =  days_rem / (60*60);
+    int hours_rem =  days_rem % (60*60);
+    int mins =  hours_rem / (60);
+    int mins_rem = hours_rem % (60);
+    int secs = mins_rem;
+    ImGui::Text("Uptime: %i days, %02i:%02i:%02i",days, hours, mins, secs);
 
     static int item_selected_idx = -1;
-    if (ImGui::BeginListBox("listbox 1"))
+    if (ImGui::BeginListBox("Pending"))
     {
         size_t iter = 0;
         void *rawitem;
         pthread_mutex_lock( &cs_mutex );
-        while (hashmap_iter(map, &iter, &rawitem)) 
+        while (hashmap_iter(map_pending, &iter, &rawitem)) 
         {
             const FileEntry *item = (const FileEntry *)rawitem;
             const bool is_selected = (item_selected_idx == iter);
@@ -315,4 +413,6 @@ void Syncy_MainLoopStep()
     ImGui::PopStyleVar(); // window padding
 
     ImGui::End();
+
+    return keepRunning;
 }

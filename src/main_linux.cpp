@@ -6,12 +6,12 @@
 #include <math.h>
 #include <string.h>
 //#include <cstdarg>
-#include <stdarg.h>
 #include <GLES3/gl3.h>
 #include <GLFW/glfw3.h> 
 #include <byteswap.h>
 #include <errno.h>
 #include <fcntl.h>
+
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
@@ -20,30 +20,8 @@
 
 //writes the text to a file to path (example): /storage/emulated/0/Android/data/org.yourorg.cnfgtest/files
 // You would not normally want to do this, but it's an example of how to do local storage.
-void Log(const char *fmt, ...)
-{
-#if ANDROID	
-	const char* getpath = AndroidGetExternalFilesDir();
-#else
-	const char* getpath = ".";
-#endif	
-	char buffer[2048];
-	snprintf(buffer, sizeof(buffer), "%s/log.txt", getpath);
-	FILE *f = fopen(buffer, "w");
-	if (f == NULL)
-	{
-		exit(1);
-	}
 
-	va_list arg;
-	va_start(arg, fmt);
-	vsnprintf(buffer, sizeof(buffer), fmt, arg);
-	va_end(arg);	
 
-	fprintf(f, "%s\n", buffer);
-
-	fclose(f);
-}
 short screenx, screeny;
 
 static void glfw_error_callback(int error, const char* description)
@@ -102,11 +80,11 @@ int main( int argc, char ** argv )
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);    
 
-    Syncy_Init(window);
+    Syncy_StartApp(window);
+    Syncy_InitWindow(window);
 
-	Log( "Startup Complete" );
-
-    while (!glfwWindowShouldClose(window))
+    bool keepRunning = true;
+    while (!glfwWindowShouldClose(window) && keepRunning)
 	{
 		glfwPollEvents();
         if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
@@ -120,7 +98,7 @@ int main( int argc, char ** argv )
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-		Syncy_MainLoopStep(); 
+		keepRunning = Syncy_MainLoopStep(); 
 	
        // Rendering
         ImGui::Render();
@@ -135,7 +113,8 @@ int main( int argc, char ** argv )
         glfwSwapBuffers(window);
 	}
 
-	Syncy_Shutdown();
+	Syncy_TermWindow();
+    Syncy_StopApp();
 
 	return(0x0);
 }

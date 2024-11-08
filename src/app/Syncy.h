@@ -1,3 +1,5 @@
+#pragma once
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -7,7 +9,8 @@ void Syncy_StopApp();
 
 void Syncy_InitWindow(void *app);
 void Syncy_TermWindow();
-void Syncy_MainLoopStep();
+
+bool Syncy_MainLoopStep();
 
 #ifdef __cplusplus
 }
