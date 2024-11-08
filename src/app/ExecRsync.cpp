@@ -2,11 +2,12 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/wait.h>
+#include "Log.h"
 
 #define READ_END 0
 #define WRITE_END 1
 
-void do_rsync(const char *pWorkingDir, const char *filename, const char *destination, const char *pPrivateKeyFilename, char *out)
+bool do_rsync(const char *pWorkingDir, const char *filename, const char *destination, const char *pPrivateKeyFilename, char *out)
 {
     int stdin_pipe[2];
     int stdout_pipe[2];
@@ -14,14 +15,14 @@ void do_rsync(const char *pWorkingDir, const char *filename, const char *destina
 
     if (pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1 || pipe(stdin_pipe) == -1) 
     {
-        sprintf(out, "Can't crate pipe\n");
-        return;
+        sprintf(out, "Can't create pipe\n");
+        return false;
     }
 
     pid_t pid = fork();
     if (pid == -1) {
         sprintf(out, "Can't fork\n");
-        return;
+        return false;
     }
 
     if (pid == 0) 
@@ -38,6 +39,8 @@ void do_rsync(const char *pWorkingDir, const char *filename, const char *destina
         close(stdin_pipe[READ_END]);
         close(stdout_pipe[WRITE_END]);
         close(stderr_pipe[WRITE_END]);
+
+        Log("rsync %s", filename);
 
 #ifdef ANDROID    
         chdir(pWorkingDir); 
@@ -114,13 +117,25 @@ void do_rsync(const char *pWorkingDir, const char *filename, const char *destina
         else
         {
             if (WIFEXITED(status)) 
-            {
-                out+=sprintf(out, "Child exited with status %d\n", WEXITSTATUS(status));
+            {                
+                out+=sprintf(out, "\nexit status %d\n", WEXITSTATUS(status));
+
+                if (WEXITSTATUS(status)==0)
+                {
+                    Log("rsync ok: status %i", WEXITSTATUS(status));
+                    return true;
+                }               
+
+                Log("rsync ok: but status %i", WEXITSTATUS(status));
+                return false;
             } 
             else 
             {
                 out+=sprintf(out, "Child did not exit normally\n");
+                Log("rsync err: abnormal termination %i", status);
+                return false;
             }
         }
     }    
+    return false;
 }
