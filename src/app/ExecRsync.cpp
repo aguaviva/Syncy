@@ -6,9 +6,7 @@
 #define READ_END 0
 #define WRITE_END 1
 
-char destination[] = "username@myserver.org:/tmp";
-
-void do_rsync(const char *pWorkingDir, const char *filename, char *out)
+void do_rsync(const char *pWorkingDir, const char *filename, const char *destination, const char *pPrivateKeyFilename, char *out)
 {
     int stdin_pipe[2];
     int stdout_pipe[2];
@@ -43,10 +41,15 @@ void do_rsync(const char *pWorkingDir, const char *filename, char *out)
 
 #ifdef ANDROID    
         chdir(pWorkingDir); 
-                
+
+
+        char remote_shell[1024];
+        sprintf(remote_shell, "./dbclient -p 22222 -i %s -y -y", pPrivateKeyFilename);
+
+
         execl("./rsync", 
         "-avz", 
-        "-e", "./dbclient -p 22222 -i ./dropbear_rsa_host_key -y -y", 
+        "-e", remote_shell, 
         "--progress", 
         filename, 
         destination, 

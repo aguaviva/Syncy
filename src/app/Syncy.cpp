@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include "hashmap.h"
 #include "ExecRsync.h"
+#include "misc.h"
 
 struct FileEntry {
     char *name;
@@ -48,7 +49,7 @@ char exec_output[10*1024];
 const char *pInternalDataPath = NULL;
 const char *pExternalDataPath = NULL;
 char pExternalLibPath[1024];
-
+char destination[1024];
 bool play=false;
 
 int fd;
@@ -117,7 +118,12 @@ void *sync_stuff(void *ptr)
             
             char filename[1024];
             sprintf(filename, "%s/%s", pExternalDataPath, pOldest->name);
-            do_rsync(pExternalLibPath, filename, exec_output);
+            do_rsync(
+                pExternalLibPath, 
+                filename, 
+                destination, 
+                "/storage/emulated/0/Documents/dropbear_rsa_host_key",
+                exec_output);
             if (true)
             {
                 pthread_mutex_lock( &cs_mutex );
@@ -158,19 +164,22 @@ void *poll_notifies(void *ptr)
                 {
                     if ( (event->mask & IN_ISDIR) == false) 
                     {
-                        char *s = (char *)malloc(strlen(event->name)+1);
-                        strcpy(s, event->name);                    
+                        if (event->name[0]!='.') // dont process hidden files
+                        {
+                            char *s = (char *)malloc(strlen(event->name)+1);
+                            strcpy(s, event->name);                    
 
-                        FileEntry item;
-                        item.name = s;
-                        time(&item.rawtime);
-                        
-                        pthread_mutex_lock( &cs_mutex );
-                        hashmap_set(map, &item);
-                        pthread_mutex_unlock( &cs_mutex );
-                        
-                        // Tell the other thread there is work to do
-                        sem_post(&semaphore);
+                            FileEntry item;
+                            item.name = s;
+                            time(&item.rawtime);
+                            
+                            pthread_mutex_lock( &cs_mutex );
+                            hashmap_set(map, &item);
+                            pthread_mutex_unlock( &cs_mutex );
+                            
+                            // Tell the other thread there is work to do
+                            sem_post(&semaphore);
+                        }
                     }
                 }
             }
@@ -194,8 +203,11 @@ void Syncy_StartApp(void *app)
     pInternalDataPath = pApp->activity->internalDataPath;
     pExternalDataPath = pApp->activity->externalDataPath;
     pExternalDataPath = "/storage/emulated/0/DCIM/Camera";
+
+    read_string_from_file("/storage/emulated/0/Documents/server.txt", destination);
+
 #else    
-    pExternalDataPath = "/home/raul";
+    pExternalDataPath = "/tmp";
 #endif
 
     map = hashmap_new(sizeof(FileEntry), 0, 0, 0, FileEntry_hash, FileEntry_compare, NULL, NULL);    
@@ -264,7 +276,6 @@ void Syncy_MainLoopStep()
     //ImGui::Checkbox("Play", &play);
     //ImGui::Text("%s", pExternalDataPath);
     //ImGui::Text("%s", pInternalDataPath);
-    //ImGui::Text("%s", pExternalLibPath);
 
     static int item_selected_idx = -1;
     if (ImGui::BeginListBox("listbox 1"))
@@ -290,6 +301,8 @@ void Syncy_MainLoopStep()
         pthread_mutex_unlock( &cs_mutex );
         ImGui::EndListBox();
     }
+
+    ImGui::Text("dest: %s",destination);
 
     int line_count = 40;
     float height = ImGui::GetTextLineHeight() * line_count;

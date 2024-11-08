@@ -1,0 +1,1 @@
+bool read_string_from_file(const char *filename, char *buffer);

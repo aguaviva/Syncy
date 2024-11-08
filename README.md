@@ -12,12 +12,14 @@ Warning, this is highly experimental
 # Quick Start
 - Generate a private key
   1. run `./dropbearkey -t rsa -f dropbear_rsa_host_key`
-  2. put the dropbear_rsa_host_key file in the `lib` folder
+  2. copy it to your phones Document folder
 - Set your server 
-  - in Syncy.cpp search and replace `username@myserver.org:/tmp`  (super lame I know)
-- Compile and upload
+  - in your phone's Documents folder create a `server.txt` file with your server: `username@myserver.org:/tmp`  
+
+# Compile and upload
   1. connect your cellphone, make sure adb works
   2. run `make run push`
+  3. Give permissions manually
 
 # Things I need help with
 - Making the keyboard work with ImGui
