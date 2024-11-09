@@ -7,7 +7,7 @@
 #define READ_END 0
 #define WRITE_END 1
 
-bool do_rsync(const char *pWorkingDir, const char *filename, const char *destination, const char *pPrivateKeyFilename, char *out)
+bool execute(const char *pWorkingDir, const char *filename, const char **params, char *out)
 {
     int stdin_pipe[2];
     int stdout_pipe[2];
@@ -22,6 +22,7 @@ bool do_rsync(const char *pWorkingDir, const char *filename, const char *destina
     pid_t pid = fork();
     if (pid == -1) {
         sprintf(out, "Can't fork\n");
+        Log("Can't fork");
         return false;
     }
 
@@ -40,32 +41,13 @@ bool do_rsync(const char *pWorkingDir, const char *filename, const char *destina
         close(stdout_pipe[WRITE_END]);
         close(stderr_pipe[WRITE_END]);
 
-        Log("rsync %s", filename);
+        Log("Exec: %s", filename);
 
-#ifdef ANDROID    
         chdir(pWorkingDir); 
 
+        execv(filename, (char* const* )params);
 
-        char remote_shell[1024];
-        sprintf(remote_shell, "./dbclient -p 22222 -i %s -y -y", pPrivateKeyFilename);
-
-
-        execl("./rsync", 
-        "-avz", 
-        "-e", remote_shell, 
-        "--progress", 
-        filename, 
-        destination, 
-        (char*)NULL);
-#else        
-        execl("/usr/bin/df", "-h", (char*)NULL);
-        //execl("/usr/bin/rsync", "-av", "--stats", "--progress", filename, "/tmp", (char*)NULL);
-        
-        //execv("/usr/bin/rsync", "-h", (char*)NULL);
-        //execv("/usr/bin/rsync", (char * const *)argv);
-
-#endif        
-        /* if execl() was successful, this won't be reached */
+        /* if execv() was successful, this won't be reached */
         _exit(127);
     }
     else
@@ -122,17 +104,17 @@ bool do_rsync(const char *pWorkingDir, const char *filename, const char *destina
 
                 if (WEXITSTATUS(status)==0)
                 {
-                    Log("rsync ok: status %i", WEXITSTATUS(status));
+                    Log("Exec : %s, OK", filename);
                     return true;
                 }               
 
-                Log("rsync ok: but status %i", WEXITSTATUS(status));
+                Log("Exec : %s, ok: returned status %i", filename, WEXITSTATUS(status));
                 return false;
             } 
             else 
             {
                 out+=sprintf(out, "Child did not exit normally\n");
-                Log("rsync err: abnormal termination %i", status);
+                Log("Exec : %s, err: abnormal termination %i", filename, status);
                 return false;
             }
         }

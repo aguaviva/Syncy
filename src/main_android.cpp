@@ -33,7 +33,7 @@ static void InitWindow(struct android_app* app);
 static void TermWindow();
 static void MainLoopStep();
 static void AndroidDisplayKeyboard(int pShow);
-static int GetAssetData(const char* filename, void** out_data);
+//static int GetAssetData(const char* filename, void** out_data);
 
 // Main code
 static void handleAppCmd(struct android_app* app, int32_t appCmd)
@@ -41,10 +41,10 @@ static void handleAppCmd(struct android_app* app, int32_t appCmd)
     switch (appCmd)
     {
     case APP_CMD_START:
-        Log("APP_CMD_START");
+        //Log("APP_CMD_START");
         break;
     case APP_CMD_STOP:
-        Log("APP_CMD_STOP");
+        //Log("APP_CMD_STOP");
         break;
     case APP_CMD_SAVE_STATE:
         Log("APP_CMD_SAVE_STATE");
@@ -58,10 +58,10 @@ static void handleAppCmd(struct android_app* app, int32_t appCmd)
         TermWindow();
         break;
     case APP_CMD_GAINED_FOCUS:
-        Log("APP_CMD_GAINED_FOCUS");
+        //Log("APP_CMD_GAINED_FOCUS");
         break;
     case APP_CMD_LOST_FOCUS:
-        Log("APP_CMD_LOST_FOCUS");
+        //Log("APP_CMD_LOST_FOCUS");
         break;
     case APP_CMD_DESTROY:
     Log("APP_CMD_DESTROY");
@@ -324,7 +324,7 @@ void AndroidDisplayKeyboard(int pShow)
 	JAVA_CALL_DETACH
 }
 
-
+/*
 // Helper to retrieve data placed into the assets/ directory (android/app/src/main/assets)
 static int GetAssetData(const char* filename, void** outData)
 {
@@ -340,6 +340,7 @@ static int GetAssetData(const char* filename, void** outData)
     }
     return num_bytes;
 }
+*/
 
 int GetLibDir(char *out) 
 {

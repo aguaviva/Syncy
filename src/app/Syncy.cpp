@@ -28,7 +28,7 @@
 #include <signal.h>
 
 #include "hashmap.h"
-#include "ExecRsync.h"
+#include "Execute.h"
 #include "misc.h"
 #include "Log.h"
 
@@ -143,16 +143,25 @@ void *sync_stuff(void *ptr)
             
             char filename[1024];
             sprintf(filename, "%s/%s", monitoredFolder, pOldest->name);
-            bool res = do_rsync(
-                pExternalLibPath, 
-                filename, 
-                destination, 
-                "/storage/emulated/0/Documents/dropbear_rsa_host_key",
-                exec_output);
 
-            //if (res)
-            {
-            }
+            char remote_shell[1024];
+            sprintf(remote_shell, "./dbclient -p 22222 -i %s -y -y", "/storage/emulated/0/Documents/dropbear_rsa_host_key");
+
+            const char *params[] = {
+                "-avz", 
+                "-e", remote_shell, 
+                "--progress", 
+                filename, destination, 
+                (char*)NULL
+            };
+
+            Log("Syncing %s", filename);
+
+            execute(
+                pExternalLibPath, 
+                "./rsync", 
+                params,
+                exec_output);
         }
     }
 
@@ -163,19 +172,6 @@ void *sync_stuff(void *ptr)
 
 void *poll_notifies(void *ptr)
 {
-    //int hdlsig = (int)ptr;
-/*
-    struct sigaction sa;
-    sa.sa_handler = NULL;
-    sa.sa_sigaction = gotsig;
-    sa.sa_flags = SA_SIGINFO;
-    sigemptyset(&sa.sa_mask);
-
-    if (sigaction(0, &sa, NULL) < 0) {
-            perror("sigaction");
-            return (void *)-1;
-    }
-*/
     /*
     pollfd pd;
     pd.fd = fd;
@@ -321,25 +317,11 @@ void Syncy_DestroyApp()
     LogTerm();
 }
 
-void Syncy_InitWindow(void *app)
+void Syncy_InitWindow(void * /*app*/)
 {
 #ifdef ANDROID    
-    android_app * pApp = (android_app *)app;
-    pApp;
     // can't do it earlier
     GetLibDir(pExternalLibPath);
-/*    
-    linked_list *files = GetFilesInFolder(pExternalLibPath);
-    SortLinkedList(files);
-    linked_list *pTmp = files;
-    while(pTmp != NULL)
-    {
-        strcat(exec_output, pTmp->pStr);
-        strcat(exec_output, "\n");
-        pTmp = pTmp->pNext;
-    }
-    FreeLinkedList(files);
-*/    
 #endif
 }
 
