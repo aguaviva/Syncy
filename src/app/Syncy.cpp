@@ -73,7 +73,7 @@ bool play=false;
 int fd;
 int wd;
 
-struct hashmap *map_pending;
+struct hashmap *map_pending, *map_error;
 
 sem_t semaphore;
 
@@ -156,12 +156,11 @@ void *sync_stuff(void *ptr)
             };
 
             Log("Syncing %s", filename);
-
-            execute(
-                pExternalLibPath, 
-                "./rsync", 
-                params,
-                exec_output);
+            bool res = execute(pExternalLibPath, "./rsync", params, exec_output);
+            if (res==false)
+            {                
+                hashmap_delete(map_error, &pOldest->name);
+            }
         }
     }
 
@@ -249,6 +248,7 @@ void Syncy_CreateApp(void *app)
     time(&start_time);
 
     map_pending = hashmap_new(sizeof(FileEntry), 0, 0, 0, FileEntry_hash, FileEntry_compare, NULL, NULL);    
+    map_error = hashmap_new(sizeof(FileEntry), 0, 0, 0, FileEntry_hash, FileEntry_compare, NULL, NULL);    
 
     char path[1024];
 
@@ -312,6 +312,7 @@ void Syncy_DestroyApp()
     pthread_join(thread1, &retval);
 
     hashmap_free(map_pending);
+    hashmap_free(map_error);
 
     Log("DestroyApp");
     LogTerm();
@@ -358,7 +359,6 @@ bool Syncy_MainLoopStep()
     int secs = mins_rem;
     ImGui::Text("Uptime: %i days, %02i:%02i:%02i",days, hours, mins, secs);
 
-    static int item_selected_idx = -1;
     if (ImGui::BeginListBox("Pending"))
     {
         size_t iter = 0;
@@ -367,20 +367,38 @@ bool Syncy_MainLoopStep()
         while (hashmap_iter(map_pending, &iter, &rawitem)) 
         {
             const FileEntry *item = (const FileEntry *)rawitem;
-            const bool is_selected = (item_selected_idx == iter);
-
-            double age = GetAge(item);
+            double age = GetAge(item) - 1; //just so we dont -1
             
             char filename[1024];
             sprintf(filename, "%02i - %s", DELAY - (int)age, item->name);
 
-            if (ImGui::Selectable(filename, is_selected))
-                item_selected_idx = iter;
-            if (is_selected)
-                ImGui::SetItemDefaultFocus();
+            ImGui::Selectable(filename, false);
         }
         pthread_mutex_unlock( &cs_mutex );
         ImGui::EndListBox();
+    }
+
+    if (hashmap_count(map_error)>0)
+    {
+        if (ImGui::BeginListBox("Error"))
+        {
+            size_t iter = 0;
+            void *rawitem;
+            pthread_mutex_lock( &cs_mutex );
+            while (hashmap_iter(map_error, &iter, &rawitem)) 
+            {
+                const FileEntry *item = (const FileEntry *)rawitem;
+
+                int age = (int)GetAge(item);
+
+                char filename[1024];
+                sprintf(filename, "%02im%02is - %s", age/60, age%60, item->name);
+
+                ImGui::Selectable(filename, false);
+            }
+            pthread_mutex_unlock( &cs_mutex );
+            ImGui::EndListBox();
+        }
     }
 
     ImGui::Text("dest: %s",destination);
