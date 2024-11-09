@@ -27,8 +27,8 @@ static bool                 g_Initialized = false;
 static char                 g_LogTag[] = "ImGuiExample";
 static std::string          g_IniFilename = "";
 // Forward declarations of helper functions
-static void StartApp(struct android_app* app);
-static void StopApp();
+static void CreateApp(struct android_app* app);
+static void DestroyApp();
 static void InitWindow(struct android_app* app);
 static void TermWindow();
 static void MainLoopStep();
@@ -65,7 +65,7 @@ static void handleAppCmd(struct android_app* app, int32_t appCmd)
         break;
     case APP_CMD_DESTROY:
     Log("APP_CMD_DESTROY");
-        StopApp();        
+        DestroyApp();        
         break;
     }
 }
@@ -80,7 +80,7 @@ extern "C" void android_main(struct android_app* app)
     app->onAppCmd = handleAppCmd;
     app->onInputEvent = handleInputEvent;
 
-    StartApp(app);
+    CreateApp(app);
 
     while (true)
     {
@@ -106,14 +106,14 @@ extern "C" void android_main(struct android_app* app)
     }
 }
 
-void StartApp(struct android_app* app)
+void CreateApp(struct android_app* app)
 {
-    Syncy_StartApp(app);
+    Syncy_CreateApp(app);
 }
 
-void StopApp( )
+void DestroyApp( )
 {   
-    Syncy_StopApp();
+    Syncy_DestroyApp();
 }
 
 void InitWindow(struct android_app* app)

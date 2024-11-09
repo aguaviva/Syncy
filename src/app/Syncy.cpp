@@ -243,7 +243,7 @@ int GetLibDir(char *out);
 pthread_t thread1;
 pthread_t thread2;
 
-void Syncy_StartApp(void *app)
+void Syncy_CreateApp(void *app)
 {
     signal(SIGINT, intHandler);
     signal(SIGQUIT, intHandler);
@@ -282,7 +282,7 @@ void Syncy_StartApp(void *app)
 
     sprintf(path, "%s%s", pMediaAndFilesDataPath, "/Documents/log.txt");
     LogInit(path);
-    Log("%s", "StartApp");
+    Log("%s", "CreateApp");
 
     fd = inotify_init();
 
@@ -299,11 +299,10 @@ void Syncy_StartApp(void *app)
     printf("Starting thread2 %i\n", iret2);
 }
 
-void Syncy_StopApp()
+void Syncy_DestroyApp()
 {
     keepRunning = 0;
 
-    Log("Stopping...");
     //wakeup rsync thread 
     sem_post(&semaphore);
     sem_destroy(&semaphore);
@@ -318,7 +317,7 @@ void Syncy_StopApp()
 
     hashmap_free(map_pending);
 
-    Log("StopApp");
+    Log("DestroyApp");
     LogTerm();
 }
 

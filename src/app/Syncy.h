@@ -4,8 +4,8 @@
 extern "C" {
 #endif
 
-void Syncy_StartApp(void *app);
-void Syncy_StopApp();
+void Syncy_CreateApp(void *app);
+void Syncy_DestroyApp();
 
 void Syncy_InitWindow(void *app);
 void Syncy_TermWindow();

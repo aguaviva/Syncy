@@ -80,7 +80,7 @@ int main( int argc, char ** argv )
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);    
 
-    Syncy_StartApp(window);
+    Syncy_CreateApp(window);
     Syncy_InitWindow(window);
 
     bool keepRunning = true;
@@ -114,7 +114,7 @@ int main( int argc, char ** argv )
 	}
 
 	Syncy_TermWindow();
-    Syncy_StopApp();
+    Syncy_DestroyApp();
 
 	return(0x0);
 }
