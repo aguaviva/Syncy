@@ -120,6 +120,31 @@ void *sync_stuff(void *ptr)
 {
     Log("Started syncing thread");
 
+    if (false)
+    {
+        sleep(1);
+
+        char tmp[1024];
+        strcpy(tmp, destination);
+        char *tok = strstr(tmp, ":");
+        if (tok==NULL)
+        {
+            Term_add("cant find proper server");
+            return NULL;
+        }
+        *tok=0;
+        const char *params[] = {                
+            "",
+            "-p", "22222",
+            "-T", 
+            "-i", "/storage/emulated/0/Documents/dropbear_rsa_host_key",
+            tmp,
+            (char*)NULL
+        };
+
+        bool res = execute(pExternalLibPath, "./dbclient", params);
+    }
+
     while(keepRunning)
     {
         sem_wait(&semaphore);
@@ -145,7 +170,7 @@ void *sync_stuff(void *ptr)
             snprintf(filename, sizeof(filename), "%s/%s", monitoredFolder, pOldest->name);
 
             char remote_shell[1024];
-            sprintf(remote_shell, "./dbclient -p 22222 -i %s -y -y", "/storage/emulated/0/Documents/dropbear_rsa_host_key");
+            sprintf(remote_shell, "./dbclient -p 22222 -i %s", "/storage/emulated/0/Documents/dropbear_rsa_host_key");
 
             const char *params[] = {                
                 "-avz",
@@ -157,7 +182,7 @@ void *sync_stuff(void *ptr)
 
             Log("Syncing %s", filename);
             bool res = execute(pExternalLibPath, "./rsync", params);
-            if (res==false)
+            if (res==true)
             {
                 hashmap_delete(map_error, &pOldest->name);
             }
@@ -264,6 +289,11 @@ void Syncy_CreateApp(void *app)
     pExternalDataPath = pApp->activity->externalDataPath;
     pMediaAndFilesDataPath = "/storage/emulated/0";
 
+    // for dropbear to find stuff
+    setenv("HOME", pInternalDataPath, true);
+    sprintf(path, "%s%s", pInternalDataPath, "/.ssh");
+    mkdir(path, 0700);
+
 #else    
     pMediaAndFilesDataPath = "/tmp";
     pInternalDataPath = pMediaAndFilesDataPath;
@@ -354,6 +384,12 @@ bool Syncy_MainLoopStep()
     //ImGui::Checkbox("Play", &play);
     ImGui::Text("%s", pExternalDataPath);
     ImGui::Text("%s", pInternalDataPath);
+    if (ImGui::Button("yes"))
+    {
+        char data[]="y\n";
+        Term_add(data);
+        pipein(data);
+    }
 
     uint32_t seconds = (uint32_t)difftime(time(0), start_time); 
     int days = seconds / (24*60*60);

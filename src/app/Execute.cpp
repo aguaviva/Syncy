@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/wait.h>
 #include "Log.h"
 #include "Term.h"
@@ -8,11 +9,12 @@
 #define READ_END 0
 #define WRITE_END 1
 
+static int stdin_pipe[2];
+static int stdout_pipe[2];
+static int stderr_pipe[2];
+
 bool execute(const char *pWorkingDir, const char *filename, const char **params)
 {
-    int stdin_pipe[2];
-    int stdout_pipe[2];
-    int stderr_pipe[2];
 
     if (pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1 || pipe(stdin_pipe) == -1) 
     {
@@ -32,16 +34,13 @@ bool execute(const char *pWorkingDir, const char *filename, const char **params)
 
         // Child process
         close(stdin_pipe[WRITE_END]);
-        close(stdout_pipe[READ_END]);
-        close(stderr_pipe[READ_END]);
-
         dup2(stdin_pipe[READ_END], STDIN_FILENO);
-        dup2(stdout_pipe[WRITE_END], STDOUT_FILENO);
-        dup2(stderr_pipe[WRITE_END], STDERR_FILENO);
 
-        close(stdin_pipe[READ_END]);
-        close(stdout_pipe[WRITE_END]);
-        close(stderr_pipe[WRITE_END]);
+        close(stdout_pipe[READ_END]);
+        dup2(stdout_pipe[WRITE_END], STDOUT_FILENO);
+
+        close(stderr_pipe[READ_END]);
+        dup2(stderr_pipe[WRITE_END], STDERR_FILENO);
 
         Log("Exec: %s", filename);
 
@@ -59,26 +58,22 @@ bool execute(const char *pWorkingDir, const char *filename, const char **params)
         close(stdout_pipe[WRITE_END]);
         close(stderr_pipe[WRITE_END]);
 
-        char data[]="y\n";
-        write(stdin_pipe[WRITE_END], data, sizeof(data));
-
         //sleep(5);
         ssize_t count=0;
-        Term_add("\nstdout:\n=======\n");
-
-        // Read stdout
-        char out[1];
-        while ((count = read(stdout_pipe[READ_END], &out, 1)) > 0) {
-            for(int i=0;i<count;i++)
-                Term_add("%c", out[i]);
-        }
-
-        Term_add("\nstderr:\n=======\n");
+        char out;
 
         // Read stderr
+        Term_add("\nstderr:\n=======\n");
         while ((count = read(stderr_pipe[READ_END], &out, 1)) > 0) {
             for(int i=0;i<count;i++)
-                Term_add("%c", out[i]);
+                Term_add("%c", out);
+        }
+
+        // Read stdout
+        Term_add("\nstdout:\n=======\n");
+        while ((count = read(stdout_pipe[READ_END], &out, 1)) > 0) {
+            for(int i=0;i<count;i++)
+                Term_add("%c", out);
         }
 
         close(stdin_pipe[WRITE_END]);
@@ -124,4 +119,9 @@ bool execute(const char *pWorkingDir, const char *filename, const char **params)
     }    
 
     return false;
+}
+
+void pipein(char *str)
+{
+    write(stdin_pipe[WRITE_END], str, strlen(str));
 }
