@@ -31,6 +31,7 @@
 #include "Execute.h"
 #include "misc.h"
 #include "Log.h"
+#include "Term.h"
 
 struct FileEntry {
     char *name;
@@ -60,7 +61,6 @@ void gotsig(int sig, siginfo_t *info, void *ucontext)
 
 time_t start_time;
 
-char exec_output[10*1024];
 
 const char *pInternalDataPath = NULL;
 const char *pExternalDataPath = NULL;
@@ -142,24 +142,28 @@ void *sync_stuff(void *ptr)
             pthread_mutex_unlock( &cs_mutex );
             
             char filename[1024];
-            sprintf(filename, "%s/%s", monitoredFolder, pOldest->name);
+            snprintf(filename, sizeof(filename), "%s/%s", monitoredFolder, pOldest->name);
 
             char remote_shell[1024];
             sprintf(remote_shell, "./dbclient -p 22222 -i %s -y -y", "/storage/emulated/0/Documents/dropbear_rsa_host_key");
 
-            const char *params[] = {
-                "-avz", 
-                "-e", remote_shell, 
-                "--progress", 
-                filename, destination, 
+            const char *params[] = {                
+                "-avz",
+                "-e", remote_shell,
+                "--progress",
+                filename, destination,
                 (char*)NULL
             };
 
             Log("Syncing %s", filename);
-            bool res = execute(pExternalLibPath, "./rsync", params, exec_output);
+            bool res = execute(pExternalLibPath, "./rsync", params);
             if (res==false)
-            {                
+            {
                 hashmap_delete(map_error, &pOldest->name);
+            }
+            else
+            {
+                Term_add("Exec failed, see log file for details\n");
             }
         }
     }
@@ -243,7 +247,9 @@ void Syncy_CreateApp(void *app)
     signal(SIGINT, intHandler);
     signal(SIGQUIT, intHandler);
 
-    strcpy(exec_output, "Init OK\n");  
+    Term_clear();
+    Term_add("Init OK\n");
+
     
     time(&start_time);
 
@@ -407,7 +413,7 @@ bool Syncy_MainLoopStep()
     float height = ImGui::GetTextLineHeight() * line_count;
     ImGui::BeginChild("TextWrapLimiter", ImVec2(1000, height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextUnformatted(exec_output);
+    ImGui::TextUnformatted(Term_get_data());
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
 

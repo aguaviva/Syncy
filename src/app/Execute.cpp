@@ -3,11 +3,12 @@
 #include <stdio.h>
 #include <sys/wait.h>
 #include "Log.h"
+#include "Term.h"
 
 #define READ_END 0
 #define WRITE_END 1
 
-bool execute(const char *pWorkingDir, const char *filename, const char **params, char *out)
+bool execute(const char *pWorkingDir, const char *filename, const char **params)
 {
     int stdin_pipe[2];
     int stdout_pipe[2];
@@ -15,19 +16,20 @@ bool execute(const char *pWorkingDir, const char *filename, const char **params,
 
     if (pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1 || pipe(stdin_pipe) == -1) 
     {
-        sprintf(out, "Can't create pipe\n");
+        Log("Error: Can't create pipe");
         return false;
     }
 
     pid_t pid = fork();
     if (pid == -1) {
-        sprintf(out, "Can't fork\n");
-        Log("Can't fork");
+        Log("Error: Can't fork");
         return false;
     }
 
     if (pid == 0) 
     {
+        //setvbuf(STDOUT_FILENO, NULL, _IONBF, 0); 
+
         // Child process
         close(stdin_pipe[WRITE_END]);
         close(stdout_pipe[READ_END]);
@@ -57,24 +59,26 @@ bool execute(const char *pWorkingDir, const char *filename, const char **params,
         close(stdout_pipe[WRITE_END]);
         close(stderr_pipe[WRITE_END]);
 
-        char data[]="ls\nexit\n";
-        write(stdin_pipe[WRITE_END], out, sizeof(data));
+        char data[]="y\n";
+        write(stdin_pipe[WRITE_END], data, sizeof(data));
 
+        //sleep(5);
         ssize_t count=0;
-        out+=sprintf(out, "stdout:\n");
+        Term_add("\nstdout:\n=======\n");
 
         // Read stdout
-        while ((count = read(stdout_pipe[READ_END], out, 1)) > 0) {
-            out += count;
-            *out = '\0';
+        char out[1];
+        while ((count = read(stdout_pipe[READ_END], &out, 1)) > 0) {
+            for(int i=0;i<count;i++)
+                Term_add("%c", out[i]);
         }
 
-        out+=sprintf(out, "\nstderr:\n");
+        Term_add("\nstderr:\n=======\n");
 
         // Read stderr
-        while ((count = read(stderr_pipe[READ_END], out, 1)) > 0) {
-            out += count;
-            *out = '\0';
+        while ((count = read(stderr_pipe[READ_END], &out, 1)) > 0) {
+            for(int i=0;i<count;i++)
+                Term_add("%c", out[i]);
         }
 
         close(stdin_pipe[WRITE_END]);
@@ -87,20 +91,20 @@ bool execute(const char *pWorkingDir, const char *filename, const char **params,
         if ( respid == -1)
         {                        
             /* waitpid() failed */
-            out+=sprintf(out, "waitpid() failed %i\n", respid);
+            Log("waitpid() failed");
             switch(errno)
             {
-                case ECHILD: out+=sprintf(out, "No child process\n"); break;
-                case EINVAL: out+=sprintf(out, "Invalid optons\n"); break;
-                case EINTR: out+=sprintf(out, "Interrupted by signal\n"); break;
-                default: out+=sprintf(out, "Error unknown\n"); break;
+                case ECHILD: Log("No child process\n"); break;
+                case EINVAL: Log("Invalid optons\n"); break;
+                case EINTR: Log("Interrupted by signal\n"); break;
+                default: Log("Error unknown\n"); break;
             }
         }
         else
         {
             if (WIFEXITED(status)) 
             {                
-                out+=sprintf(out, "\nexit status %d\n", WEXITSTATUS(status));
+                Term_add("\nexit status %d\n", WEXITSTATUS(status));
 
                 if (WEXITSTATUS(status)==0)
                 {
@@ -108,16 +112,16 @@ bool execute(const char *pWorkingDir, const char *filename, const char **params,
                     return true;
                 }               
 
-                Log("Exec : %s, ok: returned status %i", filename, WEXITSTATUS(status));
+                Log("Exec : %s OK, returned status %i", filename, WEXITSTATUS(status));
                 return false;
             } 
             else 
             {
-                out+=sprintf(out, "Child did not exit normally\n");
                 Log("Exec : %s, err: abnormal termination %i", filename, status);
                 return false;
             }
         }
     }    
+
     return false;
 }

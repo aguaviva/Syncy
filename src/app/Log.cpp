@@ -22,7 +22,6 @@ bool Log(const char *fmt, ...)
 
     pthread_mutex_lock( &cs_log_mutex );
 
-
     char buffer[1024];
     va_list arg;
     va_start(arg, fmt);
