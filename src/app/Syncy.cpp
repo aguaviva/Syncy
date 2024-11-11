@@ -26,6 +26,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <errno.h>
 
 #include "hashmap.h"
 #include "Execute.h"
@@ -69,6 +70,7 @@ char pExternalLibPath[1024];
 char monitoredFolder[1024];
 char destination[1024];
 bool play=false;
+bool ready = false;
 
 int fd;
 int wd;
@@ -137,7 +139,6 @@ void *sync_stuff(void *ptr)
             "",
             "-p", "22222",
             "-T", 
-            "-i", "/storage/emulated/0/Documents/dropbear_rsa_host_key",
             tmp,
             (char*)NULL
         };
@@ -169,12 +170,9 @@ void *sync_stuff(void *ptr)
             char filename[1024];
             snprintf(filename, sizeof(filename), "%s/%s", monitoredFolder, pOldest->name);
 
-            char remote_shell[1024];
-            sprintf(remote_shell, "./dbclient -p 22222 -i %s", "/storage/emulated/0/Documents/dropbear_rsa_host_key");
-
             const char *params[] = {                
                 "-avz",
-                "-e", remote_shell,
+                "-e", "./dbclient -p 22222 -i ~/.ssh/dropbear_rsa_host_key",
                 "--progress",
                 filename, destination,
                 (char*)NULL
@@ -273,8 +271,6 @@ void Syncy_CreateApp(void *app)
     signal(SIGQUIT, intHandler);
 
     Term_clear();
-    Term_add("Init OK\n");
-
     
     time(&start_time);
 
@@ -288,12 +284,6 @@ void Syncy_CreateApp(void *app)
     pInternalDataPath = pApp->activity->internalDataPath;
     pExternalDataPath = pApp->activity->externalDataPath;
     pMediaAndFilesDataPath = "/storage/emulated/0";
-
-    // for dropbear to find stuff
-    setenv("HOME", pInternalDataPath, true);
-    sprintf(path, "%s%s", pInternalDataPath, "/.ssh");
-    mkdir(path, 0700);
-
 #else    
     pMediaAndFilesDataPath = "/tmp";
     pInternalDataPath = pMediaAndFilesDataPath;
@@ -309,7 +299,51 @@ void Syncy_CreateApp(void *app)
     mkdir(path,0700);
 #endif
 
+    // for dropbear to find stuff
+    setenv("HOME", pInternalDataPath, true);
+    sprintf(path, "%s%s", pInternalDataPath, "/.ssh");
+    mkdir(path, 0700);
+
+    // copy key from /Documents to .ssh folder and set permissions
+    {
+        char source[1024], target[1024];
+        sprintf(source, "%s%s", pMediaAndFilesDataPath, "/Documents/dropbear_rsa_host_key");
+        sprintf(target, "%s%s", pInternalDataPath, "/.ssh/dropbear_rsa_host_key");
+
+        if (file_exists(source))
+        {
+            Term_add("Found a key in:\n");
+            Term_add(" - %s\n", source);
+            Term_add("Moving into:\n");
+            Term_add(" - %s\n", target);
+
+            if (copy_file(source, target)) 
+            {                
+                Term_add("Moving OK\n", errno);
+                remove(source);
+                chmod(target, S_IRUSR|S_IWUSR);
+            }
+            else
+            { 
+                Term_add("Error, failed to copy, errno %i\n", errno);
+                return;
+            }
+        }
+
+        if (file_exists(target)==false)
+        {
+            Term_add("Error, private key not found.\n");
+            Term_add("Please put one named `dropbear_rsa_host_key`in your Documents folder\n");
+            return;
+        }
+    }
+
     sprintf(path, "%s%s", pMediaAndFilesDataPath, "/Documents/server.txt");
+    if (file_exists(path)==false)
+    {
+        Term_add("Error, server.txt not found!");
+        return;
+    }
     read_string_from_file(path, destination);
 
     sprintf(path, "%s%s", pMediaAndFilesDataPath, "/Documents/log.txt");
@@ -329,6 +363,10 @@ void Syncy_CreateApp(void *app)
     printf("Starting thread1 %i\n", iret1);
     int iret2 = pthread_create( &thread2, NULL, poll_notifies, (void*) NULL);
     printf("Starting thread2 %i\n", iret2);
+
+    Term_add("Ready.\n\n");
+
+    ready = true;
 }
 
 void Syncy_DestroyApp()
